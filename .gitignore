@@ -3,3 +3,4 @@
 *.elf
 *.o
 flash_config.h
+.vscode
