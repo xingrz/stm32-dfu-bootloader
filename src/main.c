@@ -16,7 +16,6 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "flash_config.h"
 #include <string.h>
 #include "usb.h"
 #include "reboot.h"
