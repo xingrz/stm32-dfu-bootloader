@@ -21,10 +21,10 @@ jobs:
       - name: Build
         run: |
           mkdir -p output
-          for target_dir in targets/*; do
-            target=$(basename $target_dir)
-            ./clean.sh && ./build.sh ${target}
-            mv build/bootloader.hex output/bootloader-${target}.hex
+          for board_dir in boards/*; do
+            board=$(basename $board_dir)
+            ./clean.sh && ./build.sh ${board}
+            mv build/bootloader.hex output/bootloader-${board}.hex
           done
 
       - name: Upload artifacts

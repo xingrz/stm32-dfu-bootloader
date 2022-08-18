@@ -9,6 +9,8 @@ set(FLASH_BASE_ADDR 0x08000000)
 set(FLASH_SIZE_KB 128)
 set(FLASH_BOOTLDR_SIZE_KB 4)
 
+include(cmake/boards.cmake)
+
 add_executable(
     ${PROJECT_NAME}
     src/init.c
@@ -16,23 +18,17 @@ add_executable(
     src/usb.c
 )
 
+if(BOARD_DEFS)
+    target_compile_definitions(
+        ${PROJECT_NAME} PRIVATE ${BOARD_DEFS}
+    )
+endif()
+
 target_link_options(
     ${PROJECT_NAME} PRIVATE
     -Wl,-T${PROJECT_SOURCE_DIR}/stm32f103.ld
     -Wl,-Ttext=${FLASH_BASE_ADDR}
 )
-
-set(TARGET $ENV{TARGET})
-if("${TARGET}" STREQUAL "")
-    set(TARGET "generic")
-endif()
-set(TARGET_CMAKE ${CMAKE_SOURCE_DIR}/targets/${TARGET}/target.cmake)
-if(EXISTS ${TARGET_CMAKE})
-    message("Build for target \"${TARGET}\"")
-    include(${TARGET_CMAKE})
-else()
-    message(FATAL_ERROR "Target \"${TARGET}\" not found")
-endif()
 
 math(
     EXPR
