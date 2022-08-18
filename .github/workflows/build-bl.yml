@@ -1,0 +1,53 @@
+name: Build Bootloader
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '9-2020-q2'
+
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@master
+
+      - name: Build
+        run: |
+          mkdir -p output
+          for target_dir in targets/*; do
+            target=$(basename $target_dir)
+            ./clean.sh && TARGET=${target} ./build.sh
+            mv build/bootloader.hex output/bootloader-${target}.hex
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: bootloader
+          path: output
+          if-no-files-found: error
+
+  publish:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: bootloader
+
+      - name: Publish
+        uses: svenstaro/upload-release-action@v2
+        with:
+          tag: ${{ github.ref }}
+          file: '*.hex'
+          file_glob: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
