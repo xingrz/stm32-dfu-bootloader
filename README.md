@@ -1,4 +1,3 @@
-
 STM32F103 DFU bootloader
 ========================
 
@@ -18,12 +17,11 @@ Features
 * Optional upload enable (to prevent firmware/data reads).
 * Firmware checksum checking.
 
-
 Reboot into bootloader
 ----------------------
 
 One can reboot into bootloader (in DFU mode) by simply writing the magic
-0xDEADBEEFCC00FFEE value to the last 8 bytes of RAM and triggering a full
+`0xDEADBEEFCC00FFEE` value to the last 8 bytes of RAM and triggering a full
 system reset. This will make the bootloader start DFU mode instead of
 loading the (valid) payload present in flash.
 
@@ -47,7 +45,7 @@ Force DFU mode
 
 The bootloader can be configured to detect a GPIO condition on boot and
 abort boot to go into DFU mode. The pin will be configured as an internal
-pulldown and the user will need to pull it up to force DFU mode, which
+pull-up/down and the user will need to pull it up to force DFU mode, which
 will be read right after reset (there's some small delay to ensure the
 pin is read correclty).
 
@@ -58,38 +56,38 @@ before the period is due it will reset the system and enter DFU mode.
 Firmware format and checksum
 ----------------------------
 
-The use firmware should be build and linked at an offset of 0x1000 (4KB)
+The use firmware should be build and linked at an offset of `0x1000` (4KB)
 so it can safely boot as a payload. The bootloader will check some stuff
 before declaring the payload valid:
 
- * Stack points to somewhere in the RAM range (0x20000000).
- * The firmware contains its size at offset 0x20 (as a LE uint32).
- * The firmware 32bit XOR checksum is zero (can use offset 0x1C for that).
+ * Stack points to somewhere in the RAM range (`0x20000000`).
+ * The firmware contains its size at offset `0x20` (as a LE uint32).
+ * The firmware 32bit XOR checksum is zero (can use offset `0x1C` for that).
 
 If these conditions are met, provided no other triggers to boot into DFU
 are present, the bootloader will point VTOR to the user app and boot it.
 
-
 Config flags
 ------------
 
-* ENABLE_DFU_UPLOAD: Enables DFU upload commands, this is, enables reading
+* `ENABLE_DFU_UPLOAD`: Enables DFU upload commands, this is, enables reading
   flash memory (only within the user app boundaries) via DFU.
-* ENABLE_SAFEWRITE: Ensures the user flash is completely erased before any
+* `ENABLE_SAFEWRITE`: Ensures the user flash is completely erased before any
   DFU write/erase command is executed, to ensure no payloads are written
   that could lead to user data exfiltration.
-* ENABLE_CHECKSUM: Forces the user app image to have a valid checksum to
+* `ENABLE_CHECKSUM`: Forces the user app image to have a valid checksum to
   boot it, on failure it will fallback to DFU mode.
-* ENABLE_PROTECTIONS: Disables JTAG at startup before jumping to user code
+* `ENABLE_PROTECTIONS`: Disables JTAG at startup before jumping to user code
   and also ensures RDP protection is enabled before booting. It will update
   option bytes if that is not met and force a reset (should only happen the
   first time, after that RDP is enabled and can only be disabled via JTAG).
-* ENABLE_GPIO_DFU_BOOT: Enables DFU mode on pulling up a certain GPIO.
-  You need to define GPIO_DFU_BOOT_PORT and GPIO_DFU_BOOT_PIN to either
-  GPIOA, GPIOB, .. GPIOE and 0 .. 15 to indicate which port to enable and
-  what pin to read from.
-* ENABLE_PINRST_DFU_BOOT: Enables DFU mode when a reset from the NRST pin
+* `ENABLE_GPIO_DFU_BOOT`: Enables DFU mode on pulling up a certain GPIO.
+  You need to define `GPIO_DFU_BOOT_PORT` and `GPIO_DFU_BOOT_PIN` to either
+  `GPIOA`, `GPIOB`, .. `GPIOE` and `0` .. `15` to indicate which port to enable
+  and what pin to read from. You can also define `GPIO_DFU_BOOT_PULL` to `0` or
+  `1` for internal pull-down or pull-up, and `GPIO_DFU_BOOT_VAL` for level of
+  the pin that should enter DFU mode.
+* `ENABLE_PINRST_DFU_BOOT`: Enables DFU mode when a reset from the NRST pin
   occurs.
 
 By default all flags are set except for DFU upload, so it's most secure.
-
