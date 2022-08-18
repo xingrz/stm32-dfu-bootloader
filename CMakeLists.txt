@@ -3,7 +3,7 @@ include(cmake/toolchain.cmake)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
-project(bootloader-dfu-fw)
+project(bootloader)
 
 set(FLASH_BASE_ADDR 0x08000000)
 set(FLASH_SIZE_KB 128)
@@ -62,9 +62,17 @@ target_compile_definitions(
 set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
 add_custom_target(
-    objcopy ALL
+    build_bin ALL
     DEPENDS ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.elf
     COMMAND ${CMAKE_OBJCOPY} -O binary
         ${PROJECT_NAME}.elf
         ${PROJECT_NAME}.bin
+)
+
+add_custom_target(
+    build_hex ALL
+    DEPENDS ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.elf
+    COMMAND ${CMAKE_OBJCOPY} -O ihex
+        ${PROJECT_NAME}.elf
+        ${PROJECT_NAME}.hex
 )
