@@ -22,13 +22,16 @@ target_link_options(
     -Wl,-Ttext=${FLASH_BASE_ADDR}
 )
 
-target_compile_definitions(
-    ${PROJECT_NAME} PRIVATE
-    ENABLE_PROTECTIONS
-    ENABLE_CHECKSUM
-    ENABLE_SAFEWRITE
-    ENABLE_WATCHDOG=20
-)
+set(TARGET $ENV{TARGET})
+if("${TARGET}" STREQUAL "")
+    set(TARGET "generic")
+endif()
+set(TARGET_CMAKE ${CMAKE_SOURCE_DIR}/targets/${TARGET}/target.cmake)
+if(EXISTS ${TARGET_CMAKE})
+    include(${TARGET_CMAKE})
+else()
+    message(FATAL_ERROR "Target \"${TARGET}\" not found")
+endif()
 
 math(
     EXPR
