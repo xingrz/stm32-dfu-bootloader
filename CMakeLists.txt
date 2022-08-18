@@ -11,11 +11,19 @@ set(FLASH_BOOTLDR_SIZE_KB 4)
 
 include(cmake/boards.cmake)
 
+if(BOARD_SRCS)
+    list(
+        TRANSFORM BOARD_SRCS
+        PREPEND "${BOARD_DIR}/"
+    )
+endif()
+
 add_executable(
     ${PROJECT_NAME}
     src/init.c
     src/main.c
     src/usb.c
+    ${BOARD_SRCS}
 )
 
 if(BOARD_DEFS)
@@ -23,6 +31,11 @@ if(BOARD_DEFS)
         ${PROJECT_NAME} PRIVATE ${BOARD_DEFS}
     )
 endif()
+
+target_include_directories(
+    ${PROJECT_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
 
 target_link_options(
     ${PROJECT_NAME} PRIVATE
