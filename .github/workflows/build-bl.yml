@@ -23,7 +23,7 @@ jobs:
           mkdir -p output
           for target_dir in targets/*; do
             target=$(basename $target_dir)
-            ./clean.sh && TARGET=${target} ./build.sh
+            ./clean.sh && ./build.sh ${target}
             mv build/bootloader.hex output/bootloader-${target}.hex
           done
 
