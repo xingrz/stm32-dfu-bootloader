@@ -43,6 +43,10 @@ target_link_options(
     -Wl,-Ttext=${FLASH_BASE_ADDR}
 )
 
+set(LIBOPENCM3_TARGET f1)
+include(cmake/libopencm3.cmake)
+target_link_libraries(${PROJECT_NAME} opencm3)
+
 math(
     EXPR
     FLASH_BOOTLDR_PAYLOAD_SIZE_KB
