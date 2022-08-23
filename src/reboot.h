@@ -1,6 +1,4 @@
-
-#ifndef __REBOOT__HH__
-#define __REBOOT__HH__
+#pragma once
 
 // Points to the bottom of the stack, we should have 8 bytes free there
 extern uint32_t _stack;
@@ -23,7 +21,3 @@ static inline int rebooted_into_dfu() {
 	uint64_t * ptr = (uint64_t*)&_stack;
 	return (*ptr == 0xDEADBEEFCC00FFEEULL);
 }
-
-#endif
-
-

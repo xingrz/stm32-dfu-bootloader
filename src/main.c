@@ -23,12 +23,14 @@
 #include "watchdog.h"
 #include "gpio.h"
 
+#include <libopencm3/cm3/scb.h>
+
 /* Commands sent with wBlockNum == 0 as per ST implementation. */
 #define CMD_SETADDR	0x21
 #define CMD_ERASE	0x41
 
 // Payload/app comes inmediately after Bootloader
-#define APP_ADDRESS (FLASH_BASE_ADDR + (FLASH_BOOTLDR_SIZE_KB)*1024)
+#define APP_ADDRESS (FLASH_BASE_ADDR + (FLASH_BOOTLDR_SIZE_KB) * 1024)
 
 // USB control data buffer
 uint8_t usbd_control_buffer[DFU_TRANSFER_SIZE];
@@ -75,7 +77,7 @@ const char * const _usb_strings[5] = {
 
 static const char hcharset[16] = "0123456789abcdef";
 static void get_dev_unique_id(char *s) {
-	volatile uint8_t *unique_id = (volatile uint8_t *)0x1FFFF7E8;
+	volatile uint8_t *unique_id = (volatile uint8_t *)DESIG_UNIQUE_ID_BASE;
 	/* Fetch serial number from chip's unique ID */
 	for (int i = 0; i < 24; i += 2) {
 		s[i]   = hcharset[(*unique_id >> 4) & 0xF];
@@ -100,24 +102,18 @@ static uint8_t usbdfu_getstatus(uint32_t *bwPollTimeout) {
 	}
 }
 
-static void _full_system_reset() {
-	// Reset and wait for it!
-	volatile uint32_t *_scb_aircr = (uint32_t*)0xE000ED0CU;
-	*_scb_aircr = 0x05FA0000 | 0x4;
-	while(1);
-	__builtin_unreachable();
-}
-
-static void usbdfu_getstatus_complete(struct usb_setup_data *req) {
+static void usbdfu_getstatus_complete(usbd_device *usbd_dev,
+		struct usb_setup_data *req) {
+	(void)usbd_dev;
 	(void)req;
 
 	// Protect the flash by only writing to the valid flash area
-	const uint32_t start_addr = 0x08000000 + (FLASH_BOOTLDR_SIZE_KB*1024);
-	const uint32_t end_addr   = 0x08000000 + (        FLASH_SIZE_KB*1024);
+	const uint32_t start_addr = FLASH_BASE_ADDR + (FLASH_BOOTLDR_SIZE_KB * 1024);
+	const uint32_t end_addr   = FLASH_BASE_ADDR + (        FLASH_SIZE_KB * 1024);
 
 	switch (usbdfu_state) {
 	case STATE_DFU_DNBUSY:
-		_flash_unlock(0);
+		flash_unlock();
 		if (prog.blocknum == 0) {
 			switch (prog.buf[0]) {
 			case CMD_ERASE: {
@@ -129,7 +125,7 @@ static void usbdfu_getstatus_complete(struct usb_setup_data *req) {
 				uint32_t baseaddr = *(uint32_t *)(prog.buf + 1);
 				if (baseaddr >= start_addr && baseaddr + DFU_TRANSFER_SIZE <= end_addr) {
 					if (!_flash_page_is_erased(baseaddr))
-						_flash_erase_page(baseaddr);
+						flash_erase_page(baseaddr);
 				}
 				} break;
 			case CMD_SETADDR:
@@ -148,11 +144,11 @@ static void usbdfu_getstatus_complete(struct usb_setup_data *req) {
 			if (baseaddr >= start_addr && baseaddr + prog.len <= end_addr) {
 				// Program buffer in one go after erasing.
 				if (!_flash_page_is_erased(baseaddr))
-					_flash_erase_page(baseaddr);
+					flash_erase_page(baseaddr);
 				_flash_program_buffer(baseaddr, (uint16_t*)prog.buf, prog.len);
 			}
 		}
-		_flash_lock();
+		flash_lock();
 
 		/* Jump straight to dfuDNLOAD-IDLE, skipping dfuDNLOAD-SYNC. */
 		usbdfu_state = STATE_DFU_DNLOAD_IDLE;
@@ -164,9 +160,12 @@ static void usbdfu_getstatus_complete(struct usb_setup_data *req) {
 	}
 }
 
-enum usbd_request_return_codes
-usbdfu_control_request(struct usb_setup_data *req,
-		uint16_t *len, void (**complete)(struct usb_setup_data *req)) {
+static enum usbd_request_return_codes usbdfu_control_request(
+		usbd_device *usbd_dev,
+		struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
+		usbd_control_complete_callback *complete) {
+	(void)usbd_dev;
+	(void)buf;
 	switch (req->bRequest) {
 	case DFU_DNLOAD:
 		if ((len == NULL) || (*len == 0)) {
@@ -214,8 +213,8 @@ usbdfu_control_request(struct usb_setup_data *req,
 			#else
 			// From formula Address_Pointer + ((wBlockNum - 2)*wTransferSize)
 			uint32_t baseaddr = prog.addr + ((req->wValue - 2) * DFU_TRANSFER_SIZE);
-			const uint32_t start_addr = 0x08000000 + (FLASH_BOOTLDR_SIZE_KB*1024);
-			const uint32_t end_addr   = 0x08000000 + (        FLASH_SIZE_KB*1024);
+			const uint32_t start_addr = FLASH_BASE_ADDR + (FLASH_BOOTLDR_SIZE_KB * 1024);
+			const uint32_t end_addr   = FLASH_BASE_ADDR + (        FLASH_SIZE_KB * 1024);
 			if (baseaddr >= start_addr && baseaddr + DFU_TRANSFER_SIZE <= end_addr) {
 				memcpy(usbd_control_buffer, (void*)baseaddr, DFU_TRANSFER_SIZE);
 				*len = DFU_TRANSFER_SIZE;
@@ -253,55 +252,36 @@ usbdfu_control_request(struct usb_setup_data *req,
 #ifndef GPIO_DFU_BOOT_CUSTOM
 int force_dfu_gpio() {
 	rcc_gpio_enable(GPIO_DFU_BOOT_PORT);
+	gpio_set_mode(
+		GPIO_PORT_N(GPIO_DFU_BOOT_PORT),
+		GPIO_MODE_INPUT,
 	#ifdef GPIO_DFU_BOOT_PULL
-	gpio_set_input_pp(GPIO_DFU_BOOT_PORT, GPIO_DFU_BOOT_PIN);
-	#if GPIO_DFU_BOOT_PULL == 0
-	gpio_clear(GPIO_DFU_BOOT_PORT, GPIO_DFU_BOOT_PIN);
+		GPIO_CNF_INPUT_PULL_UPDOWN,
 	#else
-	gpio_set(GPIO_DFU_BOOT_PORT, GPIO_DFU_BOOT_PIN);
+		GPIO_CNF_INPUT_FLOAT,
+	#endif
+		GPIO_PIN_N(GPIO_DFU_BOOT_PIN));
+	#ifdef GPIO_DFU_BOOT_PULL
+	#if GPIO_DFU_BOOT_PULL == 0
+	gpio_clear(GPIO_PORT_N(GPIO_DFU_BOOT_PORT), GPIO_PIN_N(GPIO_DFU_BOOT_PIN));
+	#else
+	gpio_set(GPIO_PORT_N(GPIO_DFU_BOOT_PORT), GPIO_PIN_N(GPIO_DFU_BOOT_PIN));
 	#endif
 	#endif
 	for (unsigned int i = 0; i < 512; i++)
 		__asm__("nop");
-	uint16_t val = gpio_read(GPIO_DFU_BOOT_PORT, GPIO_DFU_BOOT_PIN);
-	gpio_set_input(GPIO_DFU_BOOT_PORT, GPIO_DFU_BOOT_PIN);
+	uint16_t val = gpio_get(GPIO_PORT_N(GPIO_DFU_BOOT_PORT), GPIO_PIN_N(GPIO_DFU_BOOT_PIN));
+	gpio_set_mode(
+		GPIO_PORT_N(GPIO_DFU_BOOT_PORT),
+		GPIO_MODE_INPUT,
+		GPIO_CNF_INPUT_FLOAT,
+		GPIO_PIN_N(GPIO_DFU_BOOT_PIN));
 	return val == GPIO_DFU_BOOT_VAL;
 }
 #endif // GPIO_DFU_BOOT_CUSTOM
 #else  // ENABLE_GPIO_DFU_BOOT
 #define force_dfu_gpio()  (0)
 #endif // ENABLE_GPIO_DFU_BOOT
-
-#define FLASH_ACR_LATENCY         7
-#define FLASH_ACR_LATENCY_2WS  0x02
-#define FLASH_ACR (*(volatile uint32_t*)0x40022000U)
-
-#define RCC_CFGR_HPRE_SYSCLK_NODIV      0x0
-#define RCC_CFGR_PPRE1_HCLK_DIV2        0x4
-#define RCC_CFGR_PPRE2_HCLK_NODIV       0x0
-#define RCC_CFGR_ADCPRE_PCLK2_DIV8      0x3
-#define RCC_CFGR_PLLMUL_PLL_CLK_MUL9    0x7
-#define RCC_CFGR_PLLSRC_HSE_CLK         0x1
-#define RCC_CFGR_PLLXTPRE_HSE_CLK       0x0
-#define RCC_CFGR_SW_SYSCLKSEL_PLLCLK    0x2
-#define RCC_CFGR_SW_SHIFT                 0
-#define RCC_CFGR_SW (3 << RCC_CFGR_SW_SHIFT)
-
-#define RCC_CR_HSEON    (1 << 16)
-#define RCC_CR_HSERDY   (1 << 17)
-#define RCC_CR_PLLON    (1 << 24)
-#define RCC_CR_PLLRDY   (1 << 25)
-#define RCC_CR       (*(volatile uint32_t*)0x40021000U)
-#define RCC_CFGR     (*(volatile uint32_t*)0x40021004U)
-
-#define RCC_CSR      (*(volatile uint32_t*)0x40021024U)
-#define RCC_CSR_LPWRRSTF    (1 << 31)
-#define RCC_CSR_WWDGRSTF    (1 << 30)
-#define RCC_CSR_IWDGRSTF    (1 << 29)
-#define RCC_CSR_SFTRSTF     (1 << 28)
-#define RCC_CSR_PORRSTF     (1 << 27)
-#define RCC_CSR_PINRSTF     (1 << 26)
-#define RCC_CSR_RMVF        (1 << 24)
 
 #ifdef ENABLE_PINRST_DFU_BOOT
 static inline int reset_due_to_pin() {
@@ -311,37 +291,6 @@ static inline int reset_due_to_pin() {
 }
 #endif
 
-static void clock_setup_in_hse_8mhz_out_72mhz() {
-	// No need to use HSI or HSE while setting up the PLL, just use the RC osc.
-
-	/* Enable external high-speed oscillator 8MHz. */
-	RCC_CR |= RCC_CR_HSEON;
-	while (!(RCC_CR & RCC_CR_HSERDY));
-
-	/*
-	 * Set prescalers for AHB, ADC, ABP1, ABP2.
-	 * Do this before touching the PLL (TODO: why?).
-	 */
-	uint32_t reg32 = RCC_CFGR & 0xFFC0000F;
-	reg32 |= (RCC_CFGR_HPRE_SYSCLK_NODIV << 4) | (RCC_CFGR_PPRE1_HCLK_DIV2 << 8) |
-	         (RCC_CFGR_PPRE2_HCLK_NODIV << 11) | (RCC_CFGR_ADCPRE_PCLK2_DIV8 << 14) |
-	         (RCC_CFGR_PLLMUL_PLL_CLK_MUL9 << 18) | (RCC_CFGR_PLLSRC_HSE_CLK << 16) |
-	         (RCC_CFGR_PLLXTPRE_HSE_CLK << 17);
-	RCC_CFGR = reg32;
-
-	// 0WS from 0-24MHz
-	// 1WS from 24-48MHz
-	// 2WS from 48-72MHz
-	FLASH_ACR = (FLASH_ACR & ~FLASH_ACR_LATENCY) | FLASH_ACR_LATENCY_2WS;
-
-	/* Enable PLL oscillator and wait for it to stabilize. */
-    RCC_CR |= RCC_CR_PLLON;
-	while (!(RCC_CR & RCC_CR_PLLRDY));
-
-	// Select PLL as SYSCLK source.
-    RCC_CFGR = (RCC_CFGR & ~RCC_CFGR_SW) | (RCC_CFGR_SW_SYSCLKSEL_PLLCLK << RCC_CFGR_SW_SHIFT);
-}
-
 int main(void) {
 	/* Boot the application if it seems valid and we haven't been
 	 * asked to reboot into DFU mode. This should make the CPU to
@@ -349,29 +298,28 @@ int main(void) {
 
 	#ifdef ENABLE_PROTECTIONS
 	// Check for RDP protection, and in case it's not enabled, do it!
-	volatile uint32_t *_flash_obr = (uint32_t*)0x4002201CU;
-	if (!((*_flash_obr) & 0x2)) {
+	if (!(FLASH_OBR & FLASH_OBR_RDPRT_EN)) {
 		// Read protection NOT enabled ->
 
 		// Unlock option bytes
-		_flash_unlock(1);
+		flash_unlock();
+		flash_unlock_option_bytes();
 
 		// Delete them all
-		_flash_erase_option_bytes();
+		flash_erase_option_bytes();
 
 		// Now write a pair of bytes that are complentary [RDP, nRDP]
-		_flash_program_option_bytes(0x1FFFF800U, 0x33CC);
+		flash_program_option_bytes(FLASH_OPTION_BYTE_0, 0x33CC);
 
 		// Now reset, for RDP to take effect. We should not re-enter this path
-		_full_system_reset();
+		scb_reset_system();
 	}
 
 	// Disable JTAG and SWD to prevent debugging/readout
-	volatile uint32_t *_AFIO_MAPR = (uint32_t*)0x40010004U;
-	*_AFIO_MAPR = (*_AFIO_MAPR & ~(0x7 << 24)) | (0x4 << 24);
+	gpio_primary_remap(AFIO_MAPR_SWJ_CFG_JTAG_OFF_SW_OFF, 0);
 	#endif
 
-	const uint32_t start_addr = 0x08000000 + (FLASH_BOOTLDR_SIZE_KB*1024);
+	const uint32_t start_addr = FLASH_BASE_ADDR + (FLASH_BOOTLDR_SIZE_KB * 1024);
 	const uint32_t * const base_addr = (uint32_t*)start_addr;
 
 	#ifdef ENABLE_CHECKSUM
@@ -387,13 +335,13 @@ int main(void) {
 	#ifdef ENABLE_WATCHDOG
 	             reset_due_to_watchdog() ||
 	#endif
-	             imagesize > FLASH_BOOTLDR_PAYLOAD_SIZE_KB*1024/4 ||
+	             imagesize > FLASH_BOOTLDR_PAYLOAD_SIZE_KB * 1024 / 4 ||
 	             force_dfu_gpio();
 
 	RCC_CSR |= RCC_CSR_RMVF;
 
 	if (!go_dfu &&
-	   (*(volatile uint32_t *)APP_ADDRESS & 0x2FFE0000) == 0x20000000) {
+	   (MMIO32(APP_ADDRESS) & 0x2FFE0000) == 0x20000000) {
 
 		// Do some simple XOR checking
 		uint32_t xorv = 0;
@@ -408,8 +356,7 @@ int main(void) {
 			enable_iwdg(4096 * ENABLE_WATCHDOG / 26);
 			#endif
 			// Set vector table base address.
-			volatile uint32_t *_csb_vtor = (uint32_t*)0xE000ED08U;
-			*_csb_vtor = APP_ADDRESS & 0xFFFF;
+			SCB_VTOR = APP_ADDRESS & 0xFFFF;
 			// Initialise master stack pointer.
 			__asm__ volatile("msr msp, %0"::"g"
 					 (*(volatile uint32_t *)APP_ADDRESS));
@@ -418,22 +365,22 @@ int main(void) {
 		}
 	}
 
-	clock_setup_in_hse_8mhz_out_72mhz();
+	rcc_clock_setup_pll(&rcc_hse_configs[RCC_CLOCK_HSE8_72MHZ]);
 
 	/* Disable USB peripheral as it overrides GPIO settings */
-	*USB_CNTR_REG = USB_CNTR_PWDN;
+	usb_pwdn();
 	/*
 	 * Vile hack to reenumerate, physically _drag_ d+ low.
 	 * (need at least 2.5us to trigger usb disconnect)
 	 */
-	rcc_gpio_enable(GPIOA);
-	gpio_set_output(GPIOA, 12);
-	gpio_clear(GPIOA, 12);
+	rcc_periph_clock_enable(RCC_GPIOA);
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO12);
+	gpio_clear(GPIOA, GPIO12);
 	for (unsigned int i = 0; i < 100000; i++)
 		__asm__("nop");
 
 	get_dev_unique_id(serial_no);
-	usb_init();
+	usb_init(usbdfu_control_request);
 
 	while (1) {
 		// Poll based approach
@@ -441,7 +388,7 @@ int main(void) {
 		if (usbdfu_state == STATE_DFU_MANIFEST) {
 			// USB device must detach, we just reset...
 			clear_reboot_flags();
-			_full_system_reset();
+			scb_reset_system();
 		}
 	}
 }
@@ -454,5 +401,3 @@ void *memcpy(void * dst, const void * src, size_t count) {
 		*dstb++ = *srcb++;
 	return dst;
 }
-
-

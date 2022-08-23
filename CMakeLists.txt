@@ -7,7 +7,7 @@ project(bootloader)
 
 set(FLASH_BASE_ADDR 0x08000000)
 set(FLASH_SIZE_KB 128)
-set(FLASH_BOOTLDR_SIZE_KB 4)
+set(FLASH_BOOTLDR_SIZE_KB 8)
 
 include(cmake/boards.cmake)
 

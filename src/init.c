@@ -1,26 +1,5 @@
-
-// Based on libopencm3 project.
 #include <stdint.h>
-
-extern unsigned _data_loadaddr, _data, _edata, _ebss, _stack;
-
-typedef void (*vector_table_entry_t)(void);
-
-typedef struct {
-    unsigned int *initial_sp_value; /**< Initial stack pointer value. */
-    vector_table_entry_t reset;
-    vector_table_entry_t nmi;
-    vector_table_entry_t hard_fault;
-    vector_table_entry_t memory_manage_fault; /* not in CM0 */
-    vector_table_entry_t bus_fault;           /* not in CM0 */
-    vector_table_entry_t usage_fault;         /* not in CM0 */
-    vector_table_entry_t reserved_x001c[4];
-    vector_table_entry_t sv_call;
-    vector_table_entry_t debug_monitor;       /* not in CM0 */
-    vector_table_entry_t reserved_x0034;
-    vector_table_entry_t pend_sv;
-    vector_table_entry_t systick;
-} vector_table_t;
+#include <libopencm3/cm3/vector.h>
 
 // A handler that does nothing, we use no interrupts
 void null_handler(void) {
@@ -68,4 +47,3 @@ vector_table_t vector_table = {
 	.pend_sv = null_handler,
 	.systick = null_handler,
 };
-
